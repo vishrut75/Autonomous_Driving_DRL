@@ -26,9 +26,9 @@ class Car_Environment():
         self.car.enableApiControl(True)
 
         self.car_controls = airsim.CarControls()
-        self.car_state = None
+        self.car_state = self.car.getCarState()
         self.car_controls.brake = 0
-        self.car_controls.throttle = 1
+        self.car_controls.throttle = 0
         self.car.setCarControls(self.car_controls)
         time.sleep(1)
 
@@ -36,9 +36,10 @@ class Car_Environment():
         self.car.reset()
 
     def _do_action(self,action):
-        linear_vel = 2*action[0] - 1;
-        steer = action[1]-0.5;
-        print(linear_vel,steer)
+        linear_vel = float(action[0])
+        # steer = float((0.5*action[1])/(1+0.2*self.car_state.speed))
+        steer = float(action[1]-0.5)
+        # print(linear_vel,steer)
         if linear_vel >= 0:
             self.car_controls.throttle = linear_vel
             self.car_controls.brake = 0
@@ -51,11 +52,11 @@ class Car_Environment():
 
     def pause(self):
         self.car.simPause(True)
-        print("Simulation Paused")
+        # print("Simulation Paused")
 
     def resume(self):
         self.car.simPause(False)
-        print("Simulation Resumed")
+        # print("Simulation Resumed")
 
     def observe_lidar(self):
         lidarData = self.car.getLidarData();
@@ -68,6 +69,25 @@ class Car_Environment():
 
         return points
 
+    def observe_movement(self):
+        for i in range(4):
+            self.depth_request = self.car.simGetImages([airsim.ImageRequest(0, airsim.ImageType.DepthVis,False,False)])
+            response = self.depth_request[0]
+
+            img1d = np.fromstring(response.image_data_uint8, dtype=np.uint8)
+            dpt_rgb = img1d.reshape(response.height, response.width, 3)
+            dpt_gray = cv2.cvtColor(dpt_rgb,cv2.COLOR_BGR2GRAY)
+            shape = np.shape(dpt_gray)
+            dpt_gray = np.reshape(dpt_gray,[shape[0],shape[1],1])
+            
+            if i==0:
+                vis = dpt_gray
+            else:
+                 vis = np.concatenate((vis, dpt_gray), axis=2)
+            time.sleep(0.1)
+        return vis
+
+    
     def observe_img(self):
         self.image_request = self.car.simGetImages([airsim.ImageRequest(0, airsim.ImageType.Scene,False,False)])
         response = self.image_request[0]
@@ -86,7 +106,6 @@ class Car_Environment():
         dpt_gray = cv2.cvtColor(dpt_rgb,cv2.COLOR_BGR2GRAY)
         
         shape = np.shape(dpt_gray)
-        print(shape)
         dpt_gray = np.reshape(dpt_gray,[shape[0],shape[1],1])
         
         vis = np.concatenate((img_rgb, dpt_gray), axis=2)
@@ -94,28 +113,28 @@ class Car_Environment():
         return vis
 
     def _compute_reward(self):
-        MAX_SPEED = 200
-        MIN_SPEED = 1
+        MAX_SPEED = 29.0
+        MIN_SPEED = 1.0
 
 
-        reward = (self.car_state.speed - MIN_SPEED)*(MAX_SPEED - self.car_state.speed)/400
+        reward = float((self.car_state.speed - MIN_SPEED)*(MAX_SPEED - self.car_state.speed)*8.0/29.0)
 
         done = 0
         if self.car_controls.brake == 0:
-            if self.car_state.speed <= 1:
-                done = 1
-                reward = -100
+            if self.car_state.speed <= 0.2:
+                done = 0
+                reward = -8.0
         if self.state["collision"]:
             done = 1
-            reward = -150
+            reward = -60.0
+
 
         return reward, done
 
 
 
     def get_obs(self):
-        image = self.observe_img()
-
+        image = self.observe_movement()
         self.car_state = self.car.getCarState()
         self.state["prev_pose"] = self.state["pose"]
         self.state["pose"] = self.car_state.kinematics_estimated
@@ -132,7 +151,7 @@ class Car_Environment():
 
     def reset(self):
         self._setup_car()
-        self._do_action([1,0])
+        self._do_action([0,0.5])
         return self.get_obs()
 
 # Car = Car_Environment()

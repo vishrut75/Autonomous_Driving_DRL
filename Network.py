@@ -36,6 +36,7 @@ class Actor(nn.Module):
         x = F.relu(self.fc1_adv(x))
         x = F.relu(self.fc2_adv(x))
         val = F.softmax(self.fc3_adv(x),dim=-1)
+        #val = torch.tanh(self.fc3_adv(x))
 
         return val
 
@@ -81,6 +82,16 @@ class ActorCritic():
         action = dist.sample()
         action_logprob = dist.log_prob(action)
         state_val = self.critic(state,vel)
+        if(action[0][0].item()>1):
+            action[0][0]=1.0
+        elif(action[0][0].item()<0):
+            action[0][0]=0.0
+
+        
+        if(action[0][1].item()>1):
+            action[0][1]=1.0
+        elif(action[0][1].item()<0):
+            action[0][1]=0.0
 
         return action.detach(), action_logprob.detach(), state_val.detach()
 
