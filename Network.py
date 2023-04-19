@@ -10,11 +10,11 @@ class Actor(nn.Module):
         # create network elements
         
         self.conv = nn.Sequential(
-            nn.Conv2d(4, 32, kernel_size=8, stride=4), # 144,256 -> (144 - 8)/4 + 1 ,  = 35, 63
+            nn.Conv2d(4, 32, kernel_size=8, stride=4), # 72,128 -> (144 - 8)/4 + 1 ,  = 16, 30
             nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=7, stride=4), # 8, 14
+            nn.Conv2d(32, 64, kernel_size=4, stride=2), # 6, 13
             nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=2, stride=1), # 7, 13
+            nn.Conv2d(64, 64, kernel_size=2, stride=1), # 5, 12
             nn.ReLU())
         
 
@@ -45,11 +45,11 @@ class Critic(nn.Module):
         super(Critic, self).__init__()
         # create network elements
         self.conv = nn.Sequential(
-            nn.Conv2d(4, 32, kernel_size=8, stride=4), # 144,256 -> (144 - 8)/4 + 1 ,  = 35, 63
+            nn.Conv2d(4, 32, kernel_size=8, stride=4), # 72,128 -> (144 - 8)/4 + 1 ,  = 16, 30
             nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=7, stride=4), # 8, 14
+            nn.Conv2d(32, 64, kernel_size=4, stride=2), # 6, 13
             nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=2, stride=1), # 7, 13
+            nn.Conv2d(64, 64, kernel_size=2, stride=1), # 5, 12
             nn.ReLU())
         
         a = self.conv(Variable(torch.zeros(in_dims))).view(1, -1).size(1)

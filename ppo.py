@@ -6,7 +6,7 @@ from collections import namedtuple, deque
 
 #D:\Epic Games\AirSim\Unreal\Environments\AirSimNH\AirSimNH\WindowsNoEditor>start AirSimNH -ResX=640 -ResY=480 -windowed
 
-# import wandb
+import wandb
 import math
 import torch
 import torch.nn as nn
@@ -19,17 +19,17 @@ import random
 BufferData = namedtuple('BufferData',('state', 'vel', 'action', 'value', 'logprobs', 'reward','done','returns','advantage'))
 
 class PPO():
-    def __init__(self,buffersize = 128,minibatch=64):
+    def __init__(self,buffersize = 512,minibatch=256):
         self.carenv = Car_Environment()
-        in_dims = [1,4,144,256]
+        in_dims = [1,4,72,128]
         action_dim = 2
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.epsilon = 0.3
         self.target_net = ActorCritic(in_dims,action_dim,self.device)
         self.policy_net = ActorCritic(in_dims,action_dim,self.device)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.project_name = "PPO_v1"
-        #wandb.init(project=self.project_name, entity="loser-rl")
+        self.project_name = "PPO_v2"
+        wandb.init(project=self.project_name, entity="loser-rl")
         self.buffersize = buffersize
         self.memory = []
         self.minibatch = minibatch
@@ -47,9 +47,9 @@ class PPO():
         load = True
         if load:
             print("Loaded")
-            model_idx = 5
-            Actor = torch.load('./Models/Actor_'+self.project_name+str(model_idx)+'.pth')
-            Critic = torch.load('./Models/Critic_'+self.project_name+str(model_idx)+'.pth')
+            model_idx = 99//50
+            Actor = torch.load('./Models/Actor_PPO_v2'+str(model_idx)+'.pth')
+            Critic = torch.load('./Models/Critic_PPO_v2'+str(model_idx)+'.pth')
             self.target_net.load_dict(Actor,Critic)
             self.policy_net.load_dict(Actor,Critic)
 
@@ -242,8 +242,8 @@ class PPO():
                 self.save_checkpoint('./Models',epn//50)
 
     def train_new(self,n_episodes = 1000):
-
-        for epn in range(n_episodes):
+        epn = 100
+        while epn<=n_episodes:
             if(epn%30 == 0):
                 self.epsilon = 0.01
             else:
@@ -271,7 +271,7 @@ class PPO():
                 ept += 1
                 epr += reward
 
-                if action[0][0]<0:
+                if reward<0:
                     negative_cnt += 1
                 else:
                     negative_cnt = 0
@@ -284,17 +284,18 @@ class PPO():
                 vel = vel.to(self.device)
                 if(len(self.memory)>=self.minibatch):
                     print('Training')
-                    # nxt_value = self.policy_net.critic(state,vel)
-                    self.gae(0*(1-done))
+                    nxt_value = self.policy_net.critic(state,vel)
+                    self.gae(nxt_value*(1-done))
                     self.optimize_step()
                     del self.memory[:]
-                if(negative_cnt>5 or epr <= -60):
+                if(negative_cnt>10 or epr <= -60):
                     break
 
             print("Episode %d Completed at %d steps with %d reward" % (epn,ept,epr))
-            #wandb.log({"episode":epn,"episode_time": ept,"episode_reward": epr,"epsilon": self.epsilon})
+            wandb.log({"episode":epn,"episode_time": ept,"episode_reward": epr,"epsilon": self.epsilon})
             if epn%50 == 49:
                 self.save_checkpoint('./Models',epn//50)
+            epn+=1
 
 
     def save_checkpoint(self,path,epn=0):
