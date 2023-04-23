@@ -29,7 +29,7 @@ class PPO():
         # self.target_net = ActorCritic(in_dims,action_dim,self.device)
         self.policy_net = ActorCritic(in_dims,action_dim,self.device)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.project_name = "PPO_v4"
+        self.project_name = "PPO_v5"
         wandb.init(project=self.project_name, entity="loser-rl")
         self.buffersize = buffersize
         self.memory = []
@@ -79,13 +79,14 @@ class PPO():
         while cur_idx >= 0:
             state_value = sample.value
             reward = sample.reward
-            delta = reward + gamma*next_state_value - state_value
-            gae = delta + gamma*tau*gae
+            delta = reward + gamma*next_state_value*(1-done) - state_value
+            gae = delta + gamma*tau*gae*(1-done)
 
-            rewards.append(torch.tensor([delta+state_value]))
+            rewards.append(torch.tensor([gae+state_value]))
 
             cur_idx -= 1
-            next_state_value = (1-sample.done)*(reward + gamma*next_state_value)#state_value
+            # next_state_value = (1-sample.done)*(reward + gamma*next_state_value)
+            next_state_value = state_value
             if(cur_idx >=0 ):
                 sample = self.memory[cur_idx]
                 done = sample.done
@@ -101,48 +102,6 @@ class PPO():
         while cur_idx < len(self.memory):
             buffersample = self.memory[cur_idx]
             buffersample._replace(returns=rewards[new_idx])
-            self.memory[cur_idx] = buffersample
-            new_idx += 1
-            cur_idx += 1
-
-
-    def return_and_advantage(self,next_state_value,gamma=0.99):
-        cur_idx = len(self.memory) -  1
-        done = 0
-        rewards = []
-        # state_value_list = []
-        # advantages = []
-        sample = self.memory[cur_idx]
-        while cur_idx >= 0: # and done==0:
-            # state_value = sample.value
-            reward = sample.reward
-            obs_state_value = reward + gamma*next_state_value
-
-            rewards.append(torch.tensor([obs_state_value]))
-            # advantages.append(torch.tensor([obs_state_value - state_value]))
-
-            cur_idx -= 1
-            next_state_value = obs_state_value
-            if(cur_idx >=0 ):
-                sample = self.memory[cur_idx]
-                done = sample.done
-            if(done):
-                next_state_value = 0.0
-        # rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
-        # advantages = np.array(rewards) - np.array(state_value_list)
-
-        rewards.reverse()
-        # advantages.reverse()
-        rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
-
-        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
-
-        cur_idx += 1
-        new_idx = 0
-        while cur_idx < len(self.memory):
-            buffersample = self.memory[cur_idx]
-            buffersample._replace(returns=rewards[new_idx])
-            # buffersample._replace(advantage=advantages[new_idx])
             self.memory[cur_idx] = buffersample
             new_idx += 1
             cur_idx += 1
@@ -177,7 +136,7 @@ class PPO():
             surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
 
             # final loss of clipped objective PPO
-            loss = -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, returns) - 0.02 * dist_entropy
+            loss = -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, returns) - 0.01*dist_entropy
             
             # take gradient step
             self.optimizer.zero_grad()
@@ -188,62 +147,6 @@ class PPO():
         # del self.memory[:]
         self.carenv.resume()
 
-
-    def train(self,n_episodes = 1000):
-
-        for epn in range(n_episodes):
-            if(epn%30 == 0):
-                self.epsilon = 0.01
-            else:
-                self.epsilon = 0.8*math.exp(-0.01*epn)
-            print(self.epsilon)
-            self.target_net.set_action_std(self.epsilon)
-            self.policy_net.set_action_std(self.epsilon)
-            state, lidar_vel = self.carenv.reset()
-            state = torch.from_numpy(np.transpose(np.asarray(state,dtype=np.float32)/255,(2,0,1))).unsqueeze(0)
-            state = state.to(self.device)
-            lidar_vel = torch.tensor([lidar_vel])
-            lidar_vel = lidar_vel.to(self.device)
-            done = 0
-            print("Episode %d Started" % (epn))
-            ept = 0
-            epr = 0
-            negative_cnt = 0
-            while not done:
-                # Choose action and take action
-                action, logprob, value = self.target_net.choose_action(state,lidar_vel)
-
-                nxt_state, reward, done, nxt_lidar_vel = self.carenv.step(action.numpy()[0])
-
-                #increment step count
-                ept += 1
-                epr += reward
-
-                if reward<0:
-                    negative_cnt += 1
-                else:
-                    negative_cnt = 0
-
-                #append to memory buffer
-                self.push(state, lidar_vel, action, value, logprob, reward,done,torch.tensor([0.0]),torch.tensor([0.0]))
-                state = torch.from_numpy(np.transpose(np.asarray(nxt_state,dtype=np.float32)/255,(2,0,1))).unsqueeze(0)
-                state = state.to(self.device)
-                lidar_vel = torch.tensor([nxt_lidar_vel])
-                lidar_vel = lidar_vel.to(self.device)
-                if(ept%50==49):
-                    nxt_value = self.target_net.critic(state,lidar_vel)
-                    self.return_and_advantage(nxt_value)
-                    self.optimize_step()
-                if(negative_cnt>5):
-                    break
-            print("Episode %d Completed at %d steps with %d reward" % (epn,ept,epr))
-            if(len(self.memory)>self.minibatch):
-                self.return_and_advantage(0.0)
-                self.optimize_step()
-            #wandb.log({"episode":epn,"episode_time": ept,"episode_reward": epr,"epsilon": self.epsilon})
-            if epn%50 == 49:
-                self.save_checkpoint('./Models',epn//50)
-
     def train_new(self,n_episodes = 1000):
         epn =0
         self.epsilon = 0.2
@@ -251,7 +154,7 @@ class PPO():
             if(epn%30 == 0):
                 self.epsilon = 0.01
             else:
-                self.epsilon = 0.15#0.3*math.exp(-0.002*epn)
+                self.epsilon = 0.3*math.exp(-0.002*epn)
             print(self.epsilon)
             # self.target_net.set_action_std(self.epsilon)
             self.policy_net.set_action_std(self.epsilon)
@@ -308,7 +211,8 @@ class PPO():
         actor_dict, critic_dict = self.policy_net.get_state_dict()
         torch.save(actor_dict,path+'/Actor_'+self.project_name+str(epn)+'.pth')
         torch.save(critic_dict,path+'/Critic_'+self.project_name+str(epn)+'.pth')
-        # input("Change Settings")
+        if(epn%4==0):
+            input("Change Settings")
 
 
 model = PPO();
