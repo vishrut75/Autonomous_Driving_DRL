@@ -10,7 +10,7 @@ class Actor(nn.Module):
         # create network elements
         
         self.conv = nn.Sequential(
-            nn.Conv2d(4, 32, kernel_size=8, stride=4), # 72,128 -> (144 - 8)/4 + 1 ,  = 16, 30
+            nn.Conv2d(3, 32, kernel_size=8, stride=4), # 72,128 -> (144 - 8)/4 + 1 ,  = 16, 30
             nn.ReLU(),
             nn.Conv2d(32, 64, kernel_size=4, stride=2), # 6, 13
             nn.ReLU(),
@@ -20,7 +20,7 @@ class Actor(nn.Module):
 
         a = self.conv(Variable(torch.zeros(in_dims))).view(1, -1).size(1)
 
-        self.fc1_adv = nn.Linear(a+2, 256)
+        self.fc1_adv = nn.Linear(a+27, 256)
         self.fc2_adv = nn.Linear(256, 128)
         self.fc3_adv = nn.Linear(128, n_actions)
         self.num_actions = n_actions
@@ -45,7 +45,7 @@ class Critic(nn.Module):
         super(Critic, self).__init__()
         # create network elements
         self.conv = nn.Sequential(
-            nn.Conv2d(4, 32, kernel_size=8, stride=4), # 72,128 -> (144 - 8)/4 + 1 ,  = 16, 30
+            nn.Conv2d(3, 32, kernel_size=8, stride=4), # 72,128 -> (144 - 8)/4 + 1 ,  = 16, 30
             nn.ReLU(),
             nn.Conv2d(32, 64, kernel_size=4, stride=2), # 6, 13
             nn.ReLU(),
@@ -53,7 +53,7 @@ class Critic(nn.Module):
             nn.ReLU())
         
         a = self.conv(Variable(torch.zeros(in_dims))).view(1, -1).size(1)
-        self.fc1_val = nn.Linear(a+2, 512)
+        self.fc1_val = nn.Linear(a+27, 512)
         self.fc2_val = nn.Linear(512, 1)
     
     def forward(self,x,vel):
