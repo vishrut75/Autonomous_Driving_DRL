@@ -50,7 +50,7 @@ class Car_Environment():
             self.car_controls.brake = -1*linear_vel
         self.car_controls.steering = steer
         self.car.setCarControls(self.car_controls)
-        time.sleep(0.1)
+        #time.sleep(0.1)
 
     def pause(self):
         self.car.simPause(True)
@@ -69,10 +69,10 @@ class Car_Environment():
         # print("\tReading: time_stamp: %d number_of_points: %d" % (lidarData.time_stamp, len(points)))
         # print("\t\tlidar position: %s" % (lidarData.pose.position))
         # print("\t\tlidar orientation: %s" % (lidarData.pose.orientation))
-        lid_array = [60]*25
+        lid_array = [1]*25
         for p in points:
             ang = np.arctan2(p[0],p[2])*180/np.pi
-            lid_array[round(ang)//5 - 6] = np.linalg.norm(p)
+            lid_array[round(ang)//5 - 6] = (np.linalg.norm(p))/60
         return lid_array
 
     def observe_movement(self):
@@ -129,11 +129,10 @@ class Car_Environment():
         
         return img_rgb
 
-
-    def segment(self,visual=False):
+    def get_image(self,name,gray=False):
         img_rgb = np.array([])
         while img_rgb.size==0:
-            self.image_request = self.car.simGetImages([airsim.ImageRequest(1, airsim.ImageType.Segmentation,False,False)])
+            self.image_request = self.car.simGetImages([airsim.ImageRequest(name, airsim.ImageType.Segmentation,False,False)])
             response = self.image_request[0]
 
             # get numpy array
@@ -144,10 +143,26 @@ class Car_Environment():
 
         img_rgb = cv2.resize(img_rgb,dsize=(128,72), interpolation=cv2.INTER_CUBIC)
 
+        if gray:
+            dpt_gray = cv2.cvtColor(img_rgb,cv2.COLOR_BGR2GRAY)
+            return dpt_gray
+        
+        return img_rgb
+
+
+    def segment(self,visual=False):
+        
+        img_rgb = self.get_image("Cam0") 
         road_color = np.array([106,31,92])
         mask = cv2.inRange(img_rgb, road_color,road_color)
+        #dpt_gray = cv2.cvtColor(img_rgb,cv2.COLOR_BGR2GRAY)
+        d1 = self.get_image("Cam1",False)
+        d2 = self.get_image("Cam2",False)
+        dpt_gray = np.concatenate((d1,img_rgb),axis=1)
+        dpt_gray = np.concatenate((dpt_gray,d2),axis=1)
+        dpt_gray = cv2.inRange(dpt_gray, road_color,road_color)
         if(visual):
-            cv2.imshow("img",img_rgb)
+            cv2.imshow("img",dpt_gray)
             cv2.waitKey(1)
 
         count = 0
@@ -156,16 +171,25 @@ class Car_Environment():
                 if(j==255):
                     count+=1
 
+        x_s,y_s = np.shape(dpt_gray)
+        dpt_gray = np.reshape(dpt_gray,[x_s,y_s,1])
         self.car.simPrintLogMessage("Road_count: ",str(count))
-        return count, img_rgb
+        return count, dpt_gray
 
     def _compute_reward(self):
-        MAX_SPEED = 9.0
+        MAX_SPEED = 7.0
         MIN_SPEED = 1.0
         road_count, _ = self.segment()
-        road_reward = np.arctan((road_count - 3500)/200)*40/np.pi
+        # road_reward = np.arctan((road_count - 3500)/200)*40/np.pi
+        road_reward = ((road_count - 3500)/500)*2/3
 
-        reward = float((self.car_state.speed - MIN_SPEED)*(MAX_SPEED - self.car_state.speed)*6.0/9.0) + road_reward
+        if(road_reward<-2):
+            road_reward = -2
+
+        speed_reward = float((self.car_state.speed - MIN_SPEED)*(MAX_SPEED - self.car_state.speed)*1.0/9.0)
+        if self.car_state.speed>5:
+            speed_reward = 0.5
+        reward = speed_reward + road_reward
 
         done = 0
         stale = 0
@@ -173,11 +197,15 @@ class Car_Environment():
             if self.car_state.speed <= 0.1:
                 done = 0
                 stale = 1
-                reward = -6.0
+                reward = -1.0
         if self.state["collision"]:
             done = 1
-            reward = -16.0*self.car_state.speed
+            reward = -1.0
 
+        if reward>1.0:
+            reward = 1.0
+        if reward<-1.0:
+            reward = -1.0
 
         return reward, done, stale
 
@@ -190,8 +218,9 @@ class Car_Environment():
         self.state["prev_pose"] = self.state["pose"]
         self.state["pose"] = self.car_state.kinematics_estimated
         self.state["collision"] = self.car.simGetCollisionInfo().has_collided
-        state.append(self.state["pose"].linear_velocity.get_length())
-        state.append(self.state["pose"].angular_velocity.get_length())
+        #state.append(self.state["pose"].linear_velocity.get_length())
+        #state.append(self.state["pose"].angular_velocity.get_length())
+        state.append(self.car_state.speed/4)
         return image, state
 
     def step(self, action):
@@ -207,13 +236,13 @@ class Car_Environment():
         self._do_action([0,0.5])
         return self.get_obs()
 
-
-# Car = Car_Environment()
-# Car.reset()
-# Car.observe_img(True)
+#print("Started")
+#Car = Car_Environment()
+#Car.reset()
+### Car.observe_img(True)
 #while True:
-#    Car.observe_lidar()
-#    Car._do_action([0.5,np.random.random()])
-#    time.sleep(1)
-#    print(Car.segment(True))
+###    Car.observe_lidar()
+###    Car._do_action([0.5,np.random.random()])
+###    time.sleep(1)
+#   Car.segment(True)
 

@@ -14,44 +14,40 @@ import torch.nn as nn
 import torch.optim
 
 from Environment import Car_Environment
-from Network import ActorCriticAgent
+from Network import ActorCritic
 import random
 
 BufferData = namedtuple('BufferData',('state', 'lidar_vel', 'action', 'value', 'logprobs', 'reward','done','returns','advantage'))
 
 class PPO():
-    def __init__(self,buffersize = 512,minibatch=128):
+    def __init__(self,buffersize = 512,minibatch=64):
         self.carenv = Car_Environment()
         in_dims = [1,1,72,3*128]
         action_dim = 2
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         #self.epsilon = 0.3
-        # self.target_net = ActorCritic(in_dims,action_dim,self.device)
-        self.policy_net = ActorCriticAgent(in_dims,action_dim,self.device)
+        self.target_net = ActorCritic(in_dims,action_dim,self.device)
+        self.policy_net = ActorCritic(in_dims,action_dim,self.device)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.project_name = "PPO_v6"
+        self.project_name = "SAC_v1"
         self.buffersize = buffersize
         self.memory = []
         self.minibatch = minibatch
         # buffersize // minibatch
         self.epoch = 1
         self.eps_clip = 0.1
-        #lr_actor = 0.0002
+        lr_actor = 0.0002
         lr_critic = 0.0003
         self.MseLoss = nn.MSELoss()
-        #self.optimizer = torch.optim.Adam([
-        #                {'params': self.policy_net.actor.parameters(), 'lr': lr_actor},
-        #                {'params': self.policy_net.critic.parameters(), 'lr': lr_critic}
-        #            ])
-
         self.optimizer = torch.optim.Adam([
-                        {'params': self.policy_net.network.parameters(), 'lr': lr_critic}
+                        {'params': self.policy_net.actor.parameters(), 'lr': lr_actor},
+                        {'params': self.policy_net.critic.parameters(), 'lr': lr_critic}
                     ])
 
         load = True
         if load:
             print("Loaded")
-            model_idx = 1249//50
+            model_idx = 949//50
             #Actor = torch.load('./Models/Actor_PPO_v5'+str(model_idx)+'.pth')
             #Critic = torch.load('./Models/Critic_PPO_v5'+str(model_idx)+'.pth')
             # self.target_net.load_dict(Actor,Critic)
@@ -66,17 +62,14 @@ class PPO():
             self.memory.pop(0)
 
     def sample_batch(self):
-        #if(self.minibatch >= len(self.memory)+1):
-        #    rand_idx = list(range(0,len(self.memory)))
-        #    random.shuffle(rand_idx)
-        #else:
-        #    rand_idx = np.random.randint(len(self.memory),size=self.minibatch)
+        if(self.minibatch >= len(self.memory)+1):
+            rand_idx = list(range(0,len(self.memory)))
+            random.shuffle(rand_idx)
+        else:
+            rand_idx = np.random.randint(len(self.memory),size=self.minibatch)
         samples = []
-        #for idx in rand_idx:
-        #    samples.append(self.memory[idx])
-        mem_len = len(self.memory)
-        for j in range(mem_len//32):
-            samples.append(self.memory[j*32:min(mem_len,(j+1)*32)])
+        for idx in rand_idx:
+            samples.append(self.memory[idx])
         return samples
 
     def gae(self,next_state_value,gamma=0.99,tau=0.95):
@@ -117,8 +110,9 @@ class PPO():
 
     def optimize_step(self):
         self.carenv.pause()
-        samples = self.sample_batch()
-        for sample in samples:
+        mem_len = len(self.memory)
+        for _ in range(mem_len//self.minibatch):
+            sample = self.sample_batch()
             batch = BufferData(*zip(*sample))
             states = torch.cat(batch.state)
             lidar_vels = torch.cat(batch.lidar_vel)
@@ -157,18 +151,8 @@ class PPO():
         self.carenv.resume()
 
     def train_new(self,n_episodes = 3000):
-        epn =1250
-        #self.epsilon = 0.1
+        epn =0
         while epn<=n_episodes:
-            manual_mode = False
-            self.policy_net.reset_eps()
-            if(epn%50==0):
-                self.policy_net.set_eps()
-                a = 'n'#input("Press y for manual_mode")
-                if(a=='y'):
-                    manual_mode = True
-                    print("Manual Mode Started")
-                    print("Use a s d f g to steer")
             #if(epn%30 == 0):
             #    self.epsilon = 0.01
             #else:
@@ -179,7 +163,7 @@ class PPO():
             #    self.epsilon = torch.Tensor([0.01,self.epsilon**2])
             #print(self.epsilon)
             # self.target_net.set_action_std(self.epsilon)
-            #self.policy_net.set_action_std(self.epsilon)
+            # self.policy_net.set_action_std(self.epsilon)
             state, lidar_vel = self.carenv.reset()
             state = torch.from_numpy(np.transpose(np.asarray(state,dtype=np.float32)/255,(2,0,1))).unsqueeze(0)
             state = state.to(self.device)
