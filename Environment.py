@@ -83,11 +83,12 @@ class Car_Environment():
 
             img1d = np.fromstring(response.image_data_uint8, dtype=np.uint8)
             dpt_rgb = img1d.reshape(response.height, response.width, 3)
-            dpt_rgb = cv2.resize(dpt_rgb,dsize=(128,72), interpolation=cv2.INTER_CUBIC)
-            dpt_gray = cv2.cvtColor(dpt_rgb,cv2.COLOR_BGR2GRAY)
+            road_color = np.array([106,31,92])
+            mask = cv2.inRange(dpt_rgb, road_color,road_color)
+            dpt_gray = cv2.resize(mask,dsize=(32,18), interpolation=cv2.INTER_CUBIC)
+            #dpt_gray = cv2.cvtColor(dpt_rgb,cv2.COLOR_BGR2GRAY)
             shape = np.shape(dpt_gray)
             dpt_gray = np.reshape(dpt_gray,[shape[0],shape[1],1])
-            
             if i==0:
                 vis = dpt_gray
             else:
@@ -178,34 +179,46 @@ class Car_Environment():
         self.car.simPrintLogMessage("Road_count: ",str(count))
         return count, dpt_gray
 
+    def sign(self,val):
+        if(val>=0):
+            return 1
+        return -1
+
     def _compute_dist(self):
         BETA = 3
-        THRESH_DIST = 3.5
+        THRESH_DIST = 3
         pts = [
             np.array([x, y, 0])
             for x, y in [
-                (0, -1), (127, -1), (127, 127), (0, 127),
-                (0, -1), (127, -1), (127, -128), (0, -128),
-                (0, -1),
+                (0, -1), (128, -1), (128, 128), (0, 128),
+                (0, -1), (128, -1), (128, -128), (0, -128),
+                (0, -1)
             ]
         ]
         car_pt = self.state["pose"].position.to_numpy_array()
         dist = 10000000
+        ang = 0
+        vec = 0
         for i in range(0, len(pts) - 1):
-            dist = min(
-                dist,
-                np.linalg.norm(
-                    np.cross((car_pt - pts[i]), (car_pt - pts[i + 1]))
-                )
-                / np.linalg.norm(pts[i] - pts[i + 1]),
-            )
+            dist_now = np.linalg.norm(np.cross((car_pt - pts[i]), (car_pt - pts[i + 1])))/ np.linalg.norm(pts[i] - pts[i + 1])
+            dist = min(dist, dist_now)
+            if(dist==dist_now):
+                ang = math.atan2(pts[i+1][1]-pts[i][1],pts[i+1][0]-pts[i][0])
+                ang = ang*180/math.pi
+                vec = self.sign(np.cross((car_pt - pts[i]),(pts[i+1]-pts[i]))[2])*dist
 
         if dist > THRESH_DIST:
             reward_dist = -1
         else:
-            reward_dist = (3 - dist**2)/BETA#math.cos(dist)#2*math.exp(-BETA*dist) - 1
+            reward_dist = (1 - dist**2)/BETA#math.cos(dist)#2*math.exp(-BETA*dist) - 1
 
-        return reward_dist
+        yaw = self.quat_to_yaw(self.state["pose"].orientation)
+        delta_ang = (ang - yaw)%360
+        if(delta_ang>180):
+            delta_ang = delta_ang - 360
+        delta_ang = delta_ang/180
+        vec = round(vec*self.sign(math.cos(delta_ang*math.pi)),4)
+        return reward_dist, vec, delta_ang
 
     def _compute_reward(self):
         MAX_SPEED = 7.0
@@ -213,7 +226,7 @@ class Car_Environment():
         road_count, _ = self.segment()
         # road_reward = np.arctan((road_count - 3500)/200)*40/np.pi
         #road_reward = ((road_count - 3500)/500)*2/3
-        road_reward = self._compute_dist()
+        road_reward, _, _ = self._compute_dist()
 
         speed_reward = float((self.car_state.speed - MIN_SPEED)*(MAX_SPEED - self.car_state.speed)*1.0/9.0)
         #if self.car_state.speed>5:
@@ -252,7 +265,16 @@ class Car_Environment():
 
         return reward/4.0, done, stale
 
-
+    def quat_to_yaw(self,quat):
+        qy = quat.y_val
+        qx = quat.x_val
+        qz = quat.z_val
+        qw = quat.w_val
+        siny_cosp = 2 * (qw * qz + qx * qy)
+        cosy_cosp = 1 - 2 * (qy * qy + qz * qz)
+        yaw = math.atan2(siny_cosp, cosy_cosp)
+        #rad = math.atan2(2.0*(qx*qy + qw*qz), qw*qw + qx*qx - qy*qy - qz*qz);
+        return yaw*180/math.pi
 
     def get_obs(self):
         #_, image = self.segment()
@@ -264,6 +286,10 @@ class Car_Environment():
         self.state["collision"] = self.car.simGetCollisionInfo().has_collided
         state.append(self.state["pose"].linear_velocity.get_length())
         state.append(self.state["pose"].angular_velocity.get_length())
+        _, dist, delta_ang = self._compute_dist()
+        state.append(dist/3)
+        state.append(delta_ang)
+        #print(delta_ang)
         #state.append(self.car_state.speed/6)
         #print(self.state["pose"])
         return image, state
@@ -284,7 +310,9 @@ class Car_Environment():
 
 #print("Started")
 #Car = Car_Environment()
+#Car._setup_car()
 #Car.reset()
+#Car.get_obs()
 #Car.step([1,0])
 #Car.observe_movement()
 ### Car.observe_img(True)
@@ -293,4 +321,5 @@ class Car_Environment():
 ###    Car._do_action([0.5,np.random.random()])
 ###    time.sleep(1)
 #   Car.segment(True)
+    #Car.get_obs()
 

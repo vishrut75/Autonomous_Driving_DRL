@@ -20,9 +20,9 @@ import random
 BufferData = namedtuple('BufferData',('state', 'lidar_vel', 'action', 'value', 'logprobs', 'reward','done','returns','advantage'))
 
 class PPO():
-    def __init__(self,buffersize = 512,minibatch=64):
+    def __init__(self,buffersize = 512,minibatch=128):
         self.carenv = Car_Environment()
-        in_dims = [1,1,72,128]
+        in_dims = [1,1,18,32]
         action_dim = 2
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         #self.epsilon = 0.3
@@ -30,15 +30,15 @@ class PPO():
         self.policy_net = ActorCritic(in_dims,action_dim,self.device)
         #self.policy_net = ActorCriticAgent(in_dims,action_dim,self.device)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.project_name = "PPO_v8"
+        self.project_name = "PPO_v10"
         self.buffersize = buffersize
         self.memory = []
         self.minibatch = minibatch
         # buffersize // minibatch
         self.epoch = 1
         self.eps_clip = 0.2
-        lr_actor = 0.0002
-        lr_critic = 0.0005
+        lr_actor = 0.0001
+        lr_critic = 0.0001
         self.MseLoss = nn.MSELoss()
         self.optimizer = torch.optim.Adam([
                         {'params': self.policy_net.actor.parameters(), 'lr': lr_actor},
@@ -53,8 +53,8 @@ class PPO():
         if load:
             print("Loaded")
             model_idx = 249//50
-            Actor = torch.load('./Models/Actor_PPO_v8'+str(model_idx)+'.pth')
-            Critic = torch.load('./Models/Critic_PPO_v8'+str(model_idx)+'.pth')
+            Actor = torch.load('./Models/Actor_PPO_v10'+str(model_idx)+'.pth')
+            Critic = torch.load('./Models/Critic_PPO_v10'+str(model_idx)+'.pth')
             # self.target_net.load_dict(Actor,Critic)
             self.policy_net.load_dict(Actor,Critic)
             #Critic = torch.load('./Models/Agent_PPO_v8'+str(model_idx)+'.pth')
@@ -75,14 +75,14 @@ class PPO():
         ##    random.shuffle(rand_idx)
         ##else:
         ##    rand_idx = np.random.randint(len(self.memory),size=self.minibatch)
-        #samples = []
+        samples = []
         ##for idx in rand_idx:
         ##    samples.append(self.memory[idx])
-        #mem_len = len(self.memory)
-        #for j in range(mem_len//32):
-        #    samples.append(self.memory[j*32:min(mem_len,(j+1)*32)])
-        #return samples
-        return [self.memory]
+        mem_len = len(self.memory)
+        for j in range(mem_len//32):
+            samples.append(self.memory[j*32:min(mem_len,(j+1)*32)])
+        return samples
+        #return [self.memory]
 
     def gae(self,next_state_value,gamma=0.99,tau=0.95):
         cur_idx = len(self.memory) -  1
@@ -150,7 +150,7 @@ class PPO():
             surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
 
             # final loss of clipped objective PPO
-            loss = -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, returns) - 0.015*dist_entropy
+            loss = -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, returns) - 0.01*dist_entropy
             
             # take gradient step
             self.optimizer.zero_grad()
@@ -163,11 +163,19 @@ class PPO():
 
     def train_new(self,n_episodes = 3000):
         print('Started')
-        epn =700
-        manual_mode = True
+        epn =250
+        manual_mode = False
+        var = [0.03,0.5]
         #self.epsilon = 0.1
         while epn<=n_episodes:
-            self.policy_net.reset_eps()
+            var = [0.03,0.2*math.exp(-0.01*epn)]
+            lr = 0.01*math.exp(-0.01*epn)
+            self.optimizer = torch.optim.Adam([
+                        {'params': self.policy_net.actor.parameters(), 'lr': lr},
+                        {'params': self.policy_net.critic.parameters(), 'lr': 2*lr}
+                    ])
+            #self.policy_net.reset_eps()
+            self.policy_net.equal_eps(var)
             #if(epn%30==0):
             #    self.policy_net.set_eps()
             if(epn%100==1):
@@ -246,7 +254,7 @@ class PPO():
             print("Episode %d Completed at %d steps with %d reward" % (epn,ept,epr))
             if self.use_wandb:
                 #wandb.log({"episode":epn,"episode_time": ept,"episode_reward": epr,"epsilon": self.epsilon})
-                wandb.log({"episode":epn,"episode_time": ept,"episode_reward": epr})
+                wandb.log({"episode":epn,"episode_time": ept,"episode_reward": epr,"lr": lr})
             if epn%50 == 49:
                 self.save_checkpoint('./Models',epn//50)
             epn+=1

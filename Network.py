@@ -21,10 +21,10 @@ class Actor(nn.Module):
             nn.ReLU())
         
 
-        a = self.conv(Variable(torch.zeros(in_dims))).view(1, -1).size(1)
-
-        self.fc1_adv = nn.Linear(a, 256)
-        self.fc2_adv = nn.Linear(256+27, 128)
+        #a = self.conv(Variable(torch.zeros(in_dims))).view(1, -1).size(1)
+        a = Variable(torch.zeros(in_dims)).view(1, -1).size(1)
+        self.fc1_adv = nn.Linear(a+29, 256)
+        self.fc2_adv = nn.Linear(256, 128)
         self.fc3_adv = nn.Linear(128, n_actions)
         self.num_actions = n_actions
 
@@ -32,12 +32,12 @@ class Actor(nn.Module):
     def forward(self,x,vel):
         # create network
         # output dimension 2 -> Throttle [-1,1] , Steering [-1,1] 
-        x = self.conv(x)
+        #x = self.conv(x)
         # Flatten
         x = x.view(x.size(0), -1)
-        x = F.relu(self.fc1_adv(x))
         x = torch.cat((x,vel),1)
         x = x.to(torch.float32)
+        x = F.relu(self.fc1_adv(x))
         x = F.relu(self.fc2_adv(x))
         val = F.softmax(self.fc3_adv(x),dim=-1)
         #val = torch.tanh(self.fc3_adv(x))
@@ -94,20 +94,21 @@ class Critic(nn.Module):
             nn.Conv2d(32, 32, kernel_size=2, stride=1), # 5, 12
             nn.ReLU())
         
-        a = self.conv(Variable(torch.zeros(in_dims))).view(1, -1).size(1)
-        self.fc1_val = nn.Linear(a, 512)
-        self.fc2_val = nn.Linear(512+27, 128)
+        #a = self.conv(Variable(torch.zeros(in_dims))).view(1, -1).size(1)
+        a = Variable(torch.zeros(in_dims)).view(1, -1).size(1)
+        self.fc1_val = nn.Linear(a+29, 512)
+        self.fc2_val = nn.Linear(512, 128)
         self.fc3_val = nn.Linear(128, 1)
     
     def forward(self,x,vel):
         # create network
         # output dimension 1 -> Value
-        x = self.conv(x)
+        #x = self.conv(x)
         #Flatten
         x = x.view(x.size(0), -1)
-        x = F.relu(self.fc1_val(x))
         x = torch.cat((x,vel),1)
         x = x.to(torch.float32)
+        x = F.relu(self.fc1_val(x))
         x = F.relu(self.fc2_val(x))
         x = self.fc3_val(x)
         return x
@@ -234,13 +235,13 @@ class ActorCritic():
         self.critic = Critic(in_dims)
         self.action_dim = action_dim
         #self.action_var = torch.full((action_dim,), action_std_init * action_std_init).to(self.device)
-        self.action_var = torch.Tensor([0.03,0.03]).to(self.device)
+        self.action_var = torch.Tensor([0.03,0.01]).to(self.device)
 
     def equal_eps(self,eps_val):
         self.action_var = torch.Tensor(eps_val)
 
     def reset_eps(self):
-        self.action_var = torch.Tensor([0.03,0.03])
+        self.action_var = torch.Tensor([0.03,0.01])
         print('reset')
 
     def choose_action(self,state,vel,manual_mode=False):
@@ -250,7 +251,6 @@ class ActorCritic():
         action = dist.sample()
         state_val = self.critic(state,vel)
         #print(state_val)
-
         #action[0][1] = max(action_mean[0][1]-0.15,min(action_mean[0][1]+0.15,action[0][1]))
         if manual_mode:
             char_pressed = mm.getwch()
