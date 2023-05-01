@@ -1,0 +1,83 @@
+{
+    "SeeDocsAt": "https://github.com/Microsoft/AirSim/blob/main/docs/settings.md",
+    "SettingsVersion": 1.2,
+    "SimMode": "Car",
+    "CameraDefaults": {
+        "CaptureSettings": [
+            {
+                "ImageType": 0,
+                "Width": 256,
+                "Height": 144,
+                "FOV_Degrees": 90,
+                "AutoExposureSpeed": 100,
+                "AutoExposureBias": 0,
+                "AutoExposureMaxBrightness": 0.64,
+                "AutoExposureMinBrightness": 0.03,
+                "MotionBlurAmount": 0,
+                "TargetGamma": 1.0,
+                "ProjectionMode": "",
+                "OrthoWidth": 5.12
+            }
+        ],
+        "UnrealEngine": {
+            "PixelFormatOverride": [
+                {
+                    "ImageType": 0,
+                    "PixelFormat": 0
+                }
+            ]
+        }
+    },
+    "Vehicles": {
+        "Car1": {
+            "VehicleType": "physxcar",
+            "AutoCreate": true,
+            "Cameras": {
+                "Cam0": {
+                    "X": 2,
+                    "Y": 0,
+                    "Z": -1
+                },
+                "Cam1": {
+                    "X": 2,
+                    "Y": -0.5,
+                    "Z": -1,
+                    "Yaw": -45
+                },
+                "Cam2": {
+                    "X": 2,
+                    "Y": 0.5,
+                    "Z": -1,
+                    "Yaw": 45
+                }
+            },
+            "Sensors": {
+                "LidarSensor1": {
+                    "SensorType": 6,
+                    "Enabled": true,
+                    "NumberOfChannels": 25,
+                    "Range": 30,
+                    "RotationsPerSecond": 0,
+                    "PointsPerSecond": 350,
+                    "X": 0,
+                    "Y": 0,
+                    "Z": -0.6,
+                    "Roll": 90,
+                    "Pitch": 0,
+                    "Yaw": 0,
+                    "VerticalFOVUpper": 60,
+                    "VerticalFOVLower": -60,
+                    "HorizontalFOVStart": 0,
+                    "HorizontalFOVEnd": 0,
+                    "DrawDebugPoints": false,
+                    "DataFrame": "SensorLocalFrame"
+                }
+            },
+            "X": 0,
+            "Y": -1,
+            "Z": 0,
+            "Yaw": 0
+        }
+    }
+}
+
