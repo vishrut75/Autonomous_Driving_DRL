@@ -14,51 +14,55 @@ import torch.nn as nn
 import torch.optim
 
 from Environment import Car_Environment
-from Network import ActorCriticAgent
+from Network import ActorCritic
 import random
 
 BufferData = namedtuple('BufferData',('state', 'lidar_vel', 'action', 'value', 'logprobs', 'reward','done','returns','advantage'))
 
 class PPO():
-    def __init__(self,buffersize = 512,minibatch=128):
+    def __init__(self,buffersize = 512,minibatch=64):
         self.carenv = Car_Environment()
-        in_dims = [1,1,72,3*128]
+        in_dims = [1,1,72,128]
         action_dim = 2
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         #self.epsilon = 0.3
         # self.target_net = ActorCritic(in_dims,action_dim,self.device)
-        self.policy_net = ActorCriticAgent(in_dims,action_dim,self.device)
+        self.policy_net = ActorCritic(in_dims,action_dim,self.device)
+        #self.policy_net = ActorCriticAgent(in_dims,action_dim,self.device)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.project_name = "PPO_v6"
+        self.project_name = "PPO_v8"
         self.buffersize = buffersize
         self.memory = []
         self.minibatch = minibatch
         # buffersize // minibatch
         self.epoch = 1
-        self.eps_clip = 0.1
-        #lr_actor = 0.0002
-        lr_critic = 0.0003
+        self.eps_clip = 0.2
+        lr_actor = 0.0002
+        lr_critic = 0.0005
         self.MseLoss = nn.MSELoss()
-        #self.optimizer = torch.optim.Adam([
-        #                {'params': self.policy_net.actor.parameters(), 'lr': lr_actor},
-        #                {'params': self.policy_net.critic.parameters(), 'lr': lr_critic}
-        #            ])
-
         self.optimizer = torch.optim.Adam([
-                        {'params': self.policy_net.network.parameters(), 'lr': lr_critic}
+                        {'params': self.policy_net.actor.parameters(), 'lr': lr_actor},
+                        {'params': self.policy_net.critic.parameters(), 'lr': lr_critic}
                     ])
+
+        #self.optimizer = torch.optim.Adam([
+        #                {'params': self.policy_net.network.parameters(), 'lr': lr_critic}
+        #            ])
 
         load = True
         if load:
             print("Loaded")
-            model_idx = 1249//50
-            #Actor = torch.load('./Models/Actor_PPO_v5'+str(model_idx)+'.pth')
-            #Critic = torch.load('./Models/Critic_PPO_v5'+str(model_idx)+'.pth')
+            model_idx = 249//50
+            Actor = torch.load('./Models/Actor_PPO_v8'+str(model_idx)+'.pth')
+            Critic = torch.load('./Models/Critic_PPO_v8'+str(model_idx)+'.pth')
             # self.target_net.load_dict(Actor,Critic)
-            #self.policy_net.load_dict(Actor,Critic)
-            Critic = torch.load('./Models/Agent_PPO_v6'+str(model_idx)+'.pth')
-            self.policy_net.load_dict(Critic)
-        wandb.init(project=self.project_name, entity="loser-rl")
+            self.policy_net.load_dict(Actor,Critic)
+            #Critic = torch.load('./Models/Agent_PPO_v8'+str(model_idx)+'.pth')
+            #self.policy_net.load_dict(Critic)
+
+        self.use_wandb = True
+        if self.use_wandb:
+            wandb.init(project=self.project_name, entity="loser-rl")
 
     def push(self,*args):
         self.memory.append(BufferData(*args))
@@ -66,18 +70,19 @@ class PPO():
             self.memory.pop(0)
 
     def sample_batch(self):
-        #if(self.minibatch >= len(self.memory)+1):
-        #    rand_idx = list(range(0,len(self.memory)))
-        #    random.shuffle(rand_idx)
-        #else:
-        #    rand_idx = np.random.randint(len(self.memory),size=self.minibatch)
-        samples = []
-        #for idx in rand_idx:
-        #    samples.append(self.memory[idx])
-        mem_len = len(self.memory)
-        for j in range(mem_len//32):
-            samples.append(self.memory[j*32:min(mem_len,(j+1)*32)])
-        return samples
+        ##if(self.minibatch >= len(self.memory)+1):
+        ##    rand_idx = list(range(0,len(self.memory)))
+        ##    random.shuffle(rand_idx)
+        ##else:
+        ##    rand_idx = np.random.randint(len(self.memory),size=self.minibatch)
+        #samples = []
+        ##for idx in rand_idx:
+        ##    samples.append(self.memory[idx])
+        #mem_len = len(self.memory)
+        #for j in range(mem_len//32):
+        #    samples.append(self.memory[j*32:min(mem_len,(j+1)*32)])
+        #return samples
+        return [self.memory]
 
     def gae(self,next_state_value,gamma=0.99,tau=0.95):
         cur_idx = len(self.memory) -  1
@@ -145,7 +150,7 @@ class PPO():
             surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
 
             # final loss of clipped objective PPO
-            loss = -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, returns) - 0.012*dist_entropy
+            loss = -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, returns) - 0.015*dist_entropy
             
             # take gradient step
             self.optimizer.zero_grad()
@@ -157,13 +162,16 @@ class PPO():
         self.carenv.resume()
 
     def train_new(self,n_episodes = 3000):
-        epn =1250
+        print('Started')
+        epn =700
+        manual_mode = True
         #self.epsilon = 0.1
         while epn<=n_episodes:
-            manual_mode = False
             self.policy_net.reset_eps()
-            if(epn%50==0):
-                self.policy_net.set_eps()
+            #if(epn%30==0):
+            #    self.policy_net.set_eps()
+            if(epn%100==1):
+                #self.policy_net.set_eps()
                 a = 'n'#input("Press y for manual_mode")
                 if(a=='y'):
                     manual_mode = True
@@ -189,12 +197,20 @@ class PPO():
             ept = 0
             epr = 0
             negative_cnt = 0
+            delta = 0
             while not done:
-
+                if(epn%10==0 and ept%5==0):
+                    ang_var = 0.0015*float((ept//5)+1)
+                    print(ang_var)
+                    self.policy_net.equal_eps([0.03,ang_var])
                 # Choose action and take action
                 action, logprob, value = self.policy_net.choose_action(state,lidar_vel,manual_mode)
 
+                #print(delta+value)
+
                 nxt_state, reward, done, nxt_lidar_vel, stale = self.carenv.step(action.numpy()[0])
+
+                delta = reward - value
 
                 #increment step count
                 ept += 1
@@ -213,13 +229,14 @@ class PPO():
                 lidar_vel = lidar_vel.to(self.device)
                 if(len(self.memory)>=self.minibatch):
                     print('Training')
-                    _, nxt_value = self.policy_net.network(state,lidar_vel)
+                    nxt_value = self.policy_net.critic(state,lidar_vel)
                     nxt_value = nxt_value.detach()
                     self.gae(nxt_value*(1-done))
                     self.optimize_step()
                     del self.memory[0:63]
-                if(negative_cnt>10 or epr <= -10):
-                    break
+                #if(negative_cnt>10 or epr <= -10):
+                    #break
+            manual_mode = False
 
             if(len(self.memory)>32 and epn%4==0):
                 print('Training')
@@ -227,8 +244,9 @@ class PPO():
                 self.optimize_step()
 
             print("Episode %d Completed at %d steps with %d reward" % (epn,ept,epr))
-            #wandb.log({"episode":epn,"episode_time": ept,"episode_reward": epr,"epsilon": self.epsilon})
-            wandb.log({"episode":epn,"episode_time": ept,"episode_reward": epr})
+            if self.use_wandb:
+                #wandb.log({"episode":epn,"episode_time": ept,"episode_reward": epr,"epsilon": self.epsilon})
+                wandb.log({"episode":epn,"episode_time": ept,"episode_reward": epr})
             if epn%50 == 49:
                 self.save_checkpoint('./Models',epn//50)
             epn+=1
@@ -236,10 +254,10 @@ class PPO():
 
     def save_checkpoint(self,path,epn=0):
         print("Saved %d" %(epn))
-        critic_dict = self.policy_net.get_state_dict()
-        #torch.save(actor_dict,path+'/Actor_'+self.project_name+str(epn)+'.pth')
-        #torch.save(critic_dict,path+'/Critic_'+self.project_name+str(epn)+'.pth')
-        torch.save(critic_dict,path+'/Agent_'+self.project_name+str(epn)+'.pth')
+        actor_dict, critic_dict = self.policy_net.get_state_dict()
+        torch.save(actor_dict,path+'/Actor_'+self.project_name+str(epn)+'.pth')
+        torch.save(critic_dict,path+'/Critic_'+self.project_name+str(epn)+'.pth')
+        #torch.save(critic_dict,path+'/Agent_'+self.project_name+str(epn)+'.pth')
         # if(epn%4==3):
             # input("Change Settings")
 

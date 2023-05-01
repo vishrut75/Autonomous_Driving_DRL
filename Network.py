@@ -37,6 +37,7 @@ class Actor(nn.Module):
         x = x.view(x.size(0), -1)
         x = F.relu(self.fc1_adv(x))
         x = torch.cat((x,vel),1)
+        x = x.to(torch.float32)
         x = F.relu(self.fc2_adv(x))
         val = F.softmax(self.fc3_adv(x),dim=-1)
         #val = torch.tanh(self.fc3_adv(x))
@@ -95,8 +96,8 @@ class Critic(nn.Module):
         
         a = self.conv(Variable(torch.zeros(in_dims))).view(1, -1).size(1)
         self.fc1_val = nn.Linear(a, 512)
-        self.fc2_val = nn.Linear(512+27, 64)
-        self.fc3_val = nn.Linear(64, 1)
+        self.fc2_val = nn.Linear(512+27, 128)
+        self.fc3_val = nn.Linear(128, 1)
     
     def forward(self,x,vel):
         # create network
@@ -106,6 +107,7 @@ class Critic(nn.Module):
         x = x.view(x.size(0), -1)
         x = F.relu(self.fc1_val(x))
         x = torch.cat((x,vel),1)
+        x = x.to(torch.float32)
         x = F.relu(self.fc2_val(x))
         x = self.fc3_val(x)
         return x
@@ -116,11 +118,11 @@ class AC(nn.Module):
         # create network elements
         
         self.conv = nn.Sequential(
-            nn.Conv2d(1, 16, kernel_size=8, stride=4), # 72,128 -> (144 - 8)/4 + 1 ,  = 16, 30
+            nn.Conv2d(3, 32, kernel_size=8, stride=4), # 72,128 -> (144 - 8)/4 + 1 ,  = 16, 30
             nn.ReLU(),
-            nn.Conv2d(16, 32, kernel_size=4, stride=2), # 6, 13
+            nn.Conv2d(32, 64, kernel_size=4, stride=2), # 6, 13
             nn.ReLU(),
-            nn.Conv2d(32, 32, kernel_size=2, stride=1), # 5, 12
+            nn.Conv2d(64, 64, kernel_size=2, stride=1), # 5, 12
             nn.ReLU())
         
 
@@ -153,13 +155,18 @@ class ActorCriticAgent():
         self.network = AC(in_dims,action_dim)
         self.action_dim = action_dim
         #self.action_var = torch.full((action_dim,), action_std_init * action_std_init).to(self.device)
-        self.action_var = torch.Tensor([0.05,0.05])
+        self.action_var = torch.Tensor([0.03,0.03])
 
     def reset_eps(self):
-        self.action_var = torch.Tensor([0.05,0.05])
+        self.action_var = torch.Tensor([0.03,0.03])
+        print('reset')
+
+    def equal_eps(self,eps_val):
+        self.action_var = torch.Tensor(eps_val)
 
     def set_eps(self):
-        self.action_var = torch.Tensor([0.05,0.001])
+        self.action_var = torch.Tensor([0.03,0.001])
+        print('set')
 
     def choose_action(self,state,vel,manual_mode=False):
         action_mean, state_val = self.network(state,vel)
@@ -169,6 +176,7 @@ class ActorCriticAgent():
         action[0][1] = max(action_mean[0][1]-0.15,min(action_mean[0][1]+0.15,action[0][1]))
         if manual_mode:
             char_pressed = mm.getwch()
+            action_req = 0.00
             if(char_pressed=='a'):
                 action_req=0.00
             if(char_pressed=='s'):
@@ -182,7 +190,8 @@ class ActorCriticAgent():
             delta = abs(np.random.normal(0,self.action_var[1],1)[0])
             if(action_req>action_mean[0][1]):
                 delta = -1*delta
-            action[0][1] = action_req+delta
+            if(char_pressed != 'c'):
+                action[0][1] = action_req+delta
         #action0_var = self.action_var[0]
         #action0 = random.triangular(action_mean[0][0]-action0_var,action_mean[0][0],action_mean[0][0]+action0_var)
         #action1_var = self.action_var[1]
@@ -224,14 +233,44 @@ class ActorCritic():
         self.actor = Actor(in_dims,action_dim)
         self.critic = Critic(in_dims)
         self.action_dim = action_dim
-        self.action_var = torch.full((action_dim,), action_std_init * action_std_init).to(self.device)
+        #self.action_var = torch.full((action_dim,), action_std_init * action_std_init).to(self.device)
+        self.action_var = torch.Tensor([0.03,0.03]).to(self.device)
 
-    def choose_action(self,state,vel):
+    def equal_eps(self,eps_val):
+        self.action_var = torch.Tensor(eps_val)
+
+    def reset_eps(self):
+        self.action_var = torch.Tensor([0.03,0.03])
+        print('reset')
+
+    def choose_action(self,state,vel,manual_mode=False):
         action_mean = self.actor(state,vel)
         cov_mat = torch.diag(self.action_var).unsqueeze(dim=0)
         dist = MultivariateNormal(action_mean, cov_mat)
         action = dist.sample()
         state_val = self.critic(state,vel)
+        #print(state_val)
+
+        #action[0][1] = max(action_mean[0][1]-0.15,min(action_mean[0][1]+0.15,action[0][1]))
+        if manual_mode:
+            char_pressed = mm.getwch()
+            action_req = 0.00
+            if(char_pressed=='a'):
+                action_req=0.00
+            if(char_pressed=='s'):
+                action_req=0.25
+            if(char_pressed=='d'):
+                action_req=0.50
+            if(char_pressed=='f'):
+                action_req=0.75
+            if(char_pressed=='g'):
+                action_req=1.00
+            delta = abs(np.random.normal(0,self.action_var[1],1)[0])
+            if(action_req>action_mean[0][1]):
+                delta = -1*delta
+            if(char_pressed != 'c'):
+                action[0][1] = action_req+delta
+
         if(action[0][0].item()>1):
             action[0][0]=1.0
         elif(action[0][0].item()<0):
@@ -242,8 +281,6 @@ class ActorCritic():
             action[0][1]=1.0
         elif(action[0][1].item()<0):
             action[0][1]=0.0
-
-        
         action_logprob = dist.log_prob(action)
 
         return action.detach(), action_logprob.detach(), state_val.detach()
