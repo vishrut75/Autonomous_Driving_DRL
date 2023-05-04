@@ -23,7 +23,7 @@ class Actor(nn.Module):
 
         #a = self.conv(Variable(torch.zeros(in_dims))).view(1, -1).size(1)
         a = Variable(torch.zeros(in_dims)).view(1, -1).size(1)
-        self.fc1_adv = nn.Linear(a+29, 256)
+        self.fc1_adv = nn.Linear(a+28, 256)
         self.fc2_adv = nn.Linear(256, 128)
         self.fc3_adv = nn.Linear(128, n_actions)
         self.num_actions = n_actions
@@ -39,8 +39,8 @@ class Actor(nn.Module):
         x = x.to(torch.float32)
         x = F.relu(self.fc1_adv(x))
         x = F.relu(self.fc2_adv(x))
-        val = F.softmax(self.fc3_adv(x),dim=-1)
-        #val = torch.tanh(self.fc3_adv(x))
+        #val = F.softmax(self.fc3_adv(x),dim=-1)
+        val = torch.tanh(self.fc3_adv(x))
 
         return val
 
@@ -96,8 +96,8 @@ class Critic(nn.Module):
         
         #a = self.conv(Variable(torch.zeros(in_dims))).view(1, -1).size(1)
         a = Variable(torch.zeros(in_dims)).view(1, -1).size(1)
-        self.fc1_val = nn.Linear(a+29, 512)
-        self.fc2_val = nn.Linear(512, 128)
+        self.fc1_val = nn.Linear(a+28, 256)
+        self.fc2_val = nn.Linear(256, 128)
         self.fc3_val = nn.Linear(128, 1)
     
     def forward(self,x,vel):
@@ -235,52 +235,61 @@ class ActorCritic():
         self.critic = Critic(in_dims)
         self.action_dim = action_dim
         #self.action_var = torch.full((action_dim,), action_std_init * action_std_init).to(self.device)
-        self.action_var = torch.Tensor([0.03,0.01]).to(self.device)
+        self.eps = 0.2
+        self.action_var = torch.Tensor([self.eps,self.eps]).to(self.device)
 
     def equal_eps(self,eps_val):
         self.action_var = torch.Tensor(eps_val)
 
     def reset_eps(self):
-        self.action_var = torch.Tensor([0.03,0.01])
-        print('reset')
+        self.eps = self.eps/1.012
+        self.action_var = torch.Tensor([self.eps,self.eps]).to(self.device)
+        print('eps',self.eps)
 
     def choose_action(self,state,vel,manual_mode=False):
-        action_mean = self.actor(state,vel)
+        action_mean = self.actor(state,vel) 
+        if vel[0][27].item()>0.3 and action_mean[0][1].item()<0:
+            action_mean[0][1] = 0.5
+            print("assist")
+        if vel[0][27].item()<-0.3 and action_mean[0][1].item()>0:
+            action_mean[0][1] = -0.5
+            print("assist")
         cov_mat = torch.diag(self.action_var).unsqueeze(dim=0)
         dist = MultivariateNormal(action_mean, cov_mat)
         action = dist.sample()
         state_val = self.critic(state,vel)
         #print(state_val)
         #action[0][1] = max(action_mean[0][1]-0.15,min(action_mean[0][1]+0.15,action[0][1]))
-        if manual_mode:
-            char_pressed = mm.getwch()
-            action_req = 0.00
-            if(char_pressed=='a'):
-                action_req=0.00
-            if(char_pressed=='s'):
-                action_req=0.25
-            if(char_pressed=='d'):
-                action_req=0.50
-            if(char_pressed=='f'):
-                action_req=0.75
-            if(char_pressed=='g'):
-                action_req=1.00
-            delta = abs(np.random.normal(0,self.action_var[1],1)[0])
-            if(action_req>action_mean[0][1]):
-                delta = -1*delta
-            if(char_pressed != 'c'):
-                action[0][1] = action_req+delta
+        #if manual_mode:
+        #    char_pressed = mm.getwch()
+        #    action_req = 0.00
+        #    if(char_pressed=='a'):
+        #        action_req=0.00
+        #    if(char_pressed=='s'):
+        #        action_req=0.25
+        #    if(char_pressed=='d'):
+        #        action_req=0.50
+        #    if(char_pressed=='f'):
+        #        action_req=0.75
+        #    if(char_pressed=='g'):
+        #        action_req=1.00
+        #    delta = abs(np.random.normal(0,self.action_var[1],1)[0])
+        #    if(action_req>action_mean[0][1]):
+        #        delta = -1*delta
+        #    if(char_pressed != 'c'):
+        #        action[0][1] = action_req+deltasssss
+        #print(vel[0][27].item())
 
         if(action[0][0].item()>1):
             action[0][0]=1.0
-        elif(action[0][0].item()<0):
-            action[0][0]=0.0
+        elif(action[0][0].item()<-1):
+            action[0][0]=-1.0
 
         
         if(action[0][1].item()>1):
             action[0][1]=1.0
-        elif(action[0][1].item()<0):
-            action[0][1]=0.0
+        elif(action[0][1].item()<-1):
+            action[0][1]=-1.0
         action_logprob = dist.log_prob(action)
 
         return action.detach(), action_logprob.detach(), state_val.detach()

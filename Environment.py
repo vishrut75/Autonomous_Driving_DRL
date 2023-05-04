@@ -39,16 +39,18 @@ class Car_Environment():
         self.car.reset()
 
     def _do_action(self,action):
-        linear_vel = float(action[0])
-        # steer = float((0.5*action[1])/(1+0.2*self.car_state.speed))
-        steer = float(action[1]*1.2-0.6)
+        linear_vel = float(action[0]+1)/2.0
+        #steer = float(action[1]-0.5)
+        steer = float(action[1])/2.0
         # print(linear_vel,steer)
-        if linear_vel >= 0:
-            self.car_controls.throttle = linear_vel
-            self.car_controls.brake = 0
-        else:
-            self.car_controls.throttle = 0
-            self.car_controls.brake = -1*linear_vel
+        #if linear_vel >= 0:
+        self.car_controls.throttle = linear_vel
+        self.car_controls.brake = 0
+        #else:
+        #    self.car_controls.throttle = 0
+        #    self.car_controls.brake = -1*linear_vel
+        #if linear_vel<0.1:
+        #    self.car_controls.brake = 1.0
         self.car_controls.steering = steer
         self.car.setCarControls(self.car_controls)
         #time.sleep(0.1)
@@ -185,22 +187,27 @@ class Car_Environment():
         return -1
 
     def _compute_dist(self):
-        BETA = 3
-        THRESH_DIST = 3
-        pts = [
-            np.array([x, y, 0])
-            for x, y in [
-                (0, -1), (128, -1), (128, 128), (0, 128),
-                (0, -1), (128, -1), (128, -128), (0, -128),
-                (0, -1)
+        BETA = 4
+        THRESH_DIST = 2
+        pnts = [
+            np.array([x, y, z, w])
+            for x, y, z, w in [
+                (-128, -1,128 ,-1), (128, -128, 128, 128), (128, 128, -128, 128), (128, -128, -128, -128),(0, -128, 0, 128), (-128, -128, -128, 128)
             ]
         ]
         car_pt = self.state["pose"].position.to_numpy_array()
         dist = 10000000
         ang = 0
         vec = 0
-        for i in range(0, len(pts) - 1):
-            dist_now = np.linalg.norm(np.cross((car_pt - pts[i]), (car_pt - pts[i + 1])))/ np.linalg.norm(pts[i] - pts[i + 1])
+        i = 0
+        for idx in range(0, len(pnts)):
+            j = pnts[idx]
+            pts = np.array([[j[0],j[1],0],[j[2],j[3],0]])
+            dist_now = np.linalg.norm(np.cross((car_pt - pts[i]), (car_pt - pts[i + 1])))/np.linalg.norm(pts[i] - pts[i + 1])
+            if pts[i][0]==pts[i+1][0] and car_pt[1] <= max(pts[i+1][1],pts[i][1]) and car_pt[1] >= min(pts[i+1][1],pts[i][1]):
+                dist_now = abs(car_pt[0]-pts[i][0])
+            elif pts[i][1]==pts[i+1][1] and car_pt[0] <= max(pts[i+1][0],pts[i][0]) and car_pt[0] >= min(pts[i+1][0],pts[i][0]):
+                dist_now = abs(car_pt[1]-pts[i][1])
             dist = min(dist, dist_now)
             if(dist==dist_now):
                 ang = math.atan2(pts[i+1][1]-pts[i][1],pts[i+1][0]-pts[i][0])
@@ -210,7 +217,7 @@ class Car_Environment():
         if dist > THRESH_DIST:
             reward_dist = -1
         else:
-            reward_dist = (1 - dist**2)/BETA#math.cos(dist)#2*math.exp(-BETA*dist) - 1
+            reward_dist =  -1*dist**2/BETA#math.cos(dist)#2*math.exp(-BETA*dist) - 1
 
         yaw = self.quat_to_yaw(self.state["pose"].orientation)
         delta_ang = (ang - yaw)%360
@@ -218,6 +225,9 @@ class Car_Environment():
             delta_ang = delta_ang - 360
         delta_ang = delta_ang/180
         vec = round(vec*self.sign(math.cos(delta_ang*math.pi)),4)
+        self.car.simPrintLogMessage("dist: ",str(vec))
+        self.car.simPrintLogMessage("x: ",str(car_pt[0]))
+        self.car.simPrintLogMessage("y: ",str(car_pt[1]))
         return reward_dist, vec, delta_ang
 
     def _compute_reward(self):
@@ -241,29 +251,29 @@ class Car_Environment():
 
         done = 0
         stale = 0
-        if self.car_controls.brake == 0:
-            if self.car_state.speed <= 0.1:
-                done = 0
-                stale = 1
-                reward = -1.0
+        if self.car_state.speed <= 0.1:
+            done = 0
+            stale = 1
+            reward = -1.0
             
         #if reward>1.0:
         #    reward = 1.0
         if reward<-1.0:
             reward = -1.0
         
-        if road_count < 3000:
+        if road_count < 2500:
             done = 1
             reward = -2.0
 
         if self.state["collision"]:
             done = 1
             reward = -2.0
+            
+        return reward, done, stale
+        #if reward <=-1.0:
+        #    return np.array([reward/2.0, reward/2.0]), done, stale
 
-
-        #print(reward)
-
-        return reward/4.0, done, stale
+        #return np.array([speed_reward/2.0,road_reward/2.0]), done, stale
 
     def quat_to_yaw(self,quat):
         qy = quat.y_val
@@ -273,7 +283,6 @@ class Car_Environment():
         siny_cosp = 2 * (qw * qz + qx * qy)
         cosy_cosp = 1 - 2 * (qy * qy + qz * qz)
         yaw = math.atan2(siny_cosp, cosy_cosp)
-        #rad = math.atan2(2.0*(qx*qy + qw*qz), qw*qw + qx*qx - qy*qy - qz*qz);
         return yaw*180/math.pi
 
     def get_obs(self):
@@ -284,13 +293,13 @@ class Car_Environment():
         self.state["prev_pose"] = self.state["pose"]
         self.state["pose"] = self.car_state.kinematics_estimated
         self.state["collision"] = self.car.simGetCollisionInfo().has_collided
-        state.append(self.state["pose"].linear_velocity.get_length())
-        state.append(self.state["pose"].angular_velocity.get_length())
+        #state.append(self.state["pose"].linear_velocity.get_length())
+        #state.append(self.state["pose"].angular_velocity.get_length())
         _, dist, delta_ang = self._compute_dist()
-        state.append(dist/3)
+        state.append(self.car_state.speed/6)
         state.append(delta_ang)
+        state.append(dist/3)
         #print(delta_ang)
-        #state.append(self.car_state.speed/6)
         #print(self.state["pose"])
         return image, state
 
@@ -310,6 +319,18 @@ class Car_Environment():
 
 #print("Started")
 #Car = Car_Environment()
+#image_request = Car.car.simGetImages([airsim.ImageRequest("Cam0", airsim.ImageType.Segmentation,False,False)])
+#response = image_request[0]
+
+## get numpy array
+#img1d = np.frombuffer(response.image_data_uint8, dtype=np.uint8) 
+
+## reshape array to 4 channel image array H X W X 4
+#img_rgb = img1d.reshape(response.height, response.width, 3)
+#road_color = np.array([106,31,92])
+#mask = cv2.inRange(img_rgb, road_color,road_color)
+#cv2.imshow("img",mask)
+#cv2.waitKey(0)
 #Car._setup_car()
 #Car.reset()
 #Car.get_obs()
