@@ -235,25 +235,32 @@ class ActorCritic():
         self.critic = Critic(in_dims)
         self.action_dim = action_dim
         #self.action_var = torch.full((action_dim,), action_std_init * action_std_init).to(self.device)
-        self.eps = 0.2
+        self.eps = 0.02
         self.action_var = torch.Tensor([self.eps,self.eps]).to(self.device)
 
     def equal_eps(self,eps_val):
         self.action_var = torch.Tensor(eps_val)
 
     def reset_eps(self):
-        self.eps = self.eps/1.012
+        if self.eps>0.01:
+            self.eps = self.eps/1.01
         self.action_var = torch.Tensor([self.eps,self.eps]).to(self.device)
         print('eps',self.eps)
 
     def choose_action(self,state,vel,manual_mode=False):
-        action_mean = self.actor(state,vel) 
-        if vel[0][27].item()>0.3 and action_mean[0][1].item()<0:
-            action_mean[0][1] = 0.5
-            print("assist")
-        if vel[0][27].item()<-0.3 and action_mean[0][1].item()>0:
-            action_mean[0][1] = -0.5
-            print("assist")
+        action_mean = self.actor(state,vel)
+        #print(vel[0][26].item()*180)
+        angle = abs(vel[0][26].item())*180 - 90
+        if vel[0][25].item()>0.2 and abs(angle)<50:
+            sign = vel[0][26].item()/abs(vel[0][26].item())
+            if angle*sign<0:
+                action_mean[0][0] = -0.5
+                action_mean[0][1] = 1.0
+                print("assist")
+            else:
+                action_mean[0][0] = -0.5
+                action_mean[0][1] = -1.0
+                print("assist")
         cov_mat = torch.diag(self.action_var).unsqueeze(dim=0)
         dist = MultivariateNormal(action_mean, cov_mat)
         action = dist.sample()
